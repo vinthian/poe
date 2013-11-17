@@ -2,30 +2,24 @@ from unittest import TestCase
 
 from poe.config import settings
 from poe.web_api.session import (
-    PathSession, InvalidLoginException, DataNotFoundException
+    PathSession, InvalidLoginException
 )
 
 
 class PathSessionTestCase(TestCase):
-    def setUp(self):
-        self.username = settings["USERNAME"]
-        self.password = settings["PASSWORD"]
+    @classmethod
+    def setUpClass(cls):
+        cls.session = PathSession(settings["USERNAME"], settings["PASSWORD"])
 
     def test_good_login(self):
-        session = PathSession(self.username, self.password)
-        del session
+        pass
 
     def test_bad_login(self):
-        session = PathSession
         self.assertRaises(InvalidLoginException, PathSession,
                           username="bad", password="login")
-        del session
 
-    def test_get_stash(self):
-        session = PathSession(self.username, self.password)
-        # good
-        session.get_stash(league="nemesis")
-        # bad
-        self.assertRaises(DataNotFoundException, session.get_stash,
-                          league="bad_league")
-        del session
+    def test_get_stash_good(self):
+        self.session.get_stash(league="nemesis")
+
+    def test_get_stash_bad(self):
+        self.assertEquals(self.session.get_stash_tab(league="bad_league"), None)
