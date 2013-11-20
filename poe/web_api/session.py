@@ -73,6 +73,8 @@ class PathSession(object):
 
     def initdb(self):
         self.engine = create_engine("sqlite:///%s" % settings["DB_PATH"])
+        # always reset the db on a new session
+        initdb(self)
         Base.metadata.bind = self.engine
         DBSession = sessionmaker()
         DBSession.bind = self.engine
@@ -149,16 +151,21 @@ class PathSession(object):
         return data
 
 
-if __name__ == "__main__":
+def initdb(session):
     import os
+
+    if os.path.exists(settings["DB_PATH"]):
+        os.remove(settings["DB_PATH"])
+    Base.metadata.create_all(session.engine)
+
+
+if __name__ == "__main__":
     import sys
 
     if sys.argv[1] == "initdb":
-        if os.path.exists(settings["DB_PATH"]):
-            os.remove(settings["DB_PATH"])
-        session = PathSession(settings["USERNAME"], settings["PASSWORD"])
-        Base.metadata.create_all(session.engine)
+        session = PathSession()
+        initdb(session)
 
     if sys.argv[1] == "get_stash":
-        session = PathSession(settings["USERNAME"], settings["PASSWORD"])
+        session = PathSession()
         session.get_stash(league=sys.argv[2])
