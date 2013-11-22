@@ -5,14 +5,17 @@ import urlparse
 import time
 import mechanize
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from poe.config import settings
-from poe.web_api.models import Base, StashTab, Item, get_or_create
+from poe.web_api.models import Db, StashTab, Item, get_or_create
 
 
 logger = logging.getLogger(__name__)
+
+
+class InvalidSessionIDException(Exception):
+    def __init__(self, msg):
+        super(InvalidSessionIDException, self).__init__(self, msg)
+        logger.debug("Invalid session id exception")
 
 
 class InvalidLoginException(Exception):
@@ -53,32 +56,55 @@ class PathSession(object):
     def __init__(self):
         self.br = PathBrowser()
         self.logged_in = False
-        self.initdb()
+        self.db = Db()
+        # always reset the db on a new session
+        self.db.clear()
+        self.db.init()
 
-    def login(self, username, password):
+    def login_normal(self, username, password):
         self.br.open(settings["URL_LOGIN"])
         self.br.select_form(nr=0)
         self.br.form["login_email"] = username
         self.br.form["login_password"] = password
         self.br.submit()
+        self.check_logged_in()
 
+    def login_session_id(self, session_id):
+        if len(session_id) != 32:
+            raise InvalidSessionIDException(
+                "Session ID needs to be 32 characters")
+
+        self.br.open(settings["URL_LOGIN"])
+        cj = mechanize.LWPCookieJar()
+        self.br.set_cookiejar(cj)
+        cookie = mechanize.Cookie(
+            version=0,
+            name="PHPSESSID",
+            value=session_id,
+            port=None,
+            port_specified=False,
+            domain="www.pathofexile.com",
+            domain_specified=False,
+            domain_initial_dot=False,
+            path="/",
+            path_specified=True,
+            secure=False,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest=None,
+        )
+        cj.set_cookie(cookie)
+        self.check_logged_in()
+
+    def check_logged_in(self):
         self.br.open(settings["URL_ACCOUNT"])
         if self.br.geturl() != settings["URL_ACCOUNT"]:
             self.logged_in = False
-            return False
-            # raise InvalidLoginException("Could not log in")
-
-        self.logged_in = True
-        return True
-
-    def initdb(self):
-        self.engine = create_engine("sqlite:///%s" % settings["DB_PATH"])
-        # always reset the db on a new session
-        initdb(self)
-        Base.metadata.bind = self.engine
-        DBSession = sessionmaker()
-        DBSession.bind = self.engine
-        self.db = DBSession()
+            raise InvalidLoginException("Could not log in, bad credentials")
+        else:
+            self.logged_in = True
 
     def logged_in(func):
         from functools import wraps
@@ -103,7 +129,7 @@ class PathSession(object):
             items = []
 
             tab = get_or_create(
-                self.db,
+                self.db.session,
                 StashTab,
                 league=stash_tab["items"][0]["league"],
                 name=stash_tab["items"][0]["inventoryId"],
@@ -124,9 +150,9 @@ class PathSession(object):
                     x=item["x"],
                     y=item["y"]))
 
-            self.db.add(tab)
-            self.db.add_all(items)
-            self.db.commit()
+            self.db.session.add(tab)
+            self.db.session.add_all(items)
+            self.db.session.commit()
 
             tab_index += 1
 
@@ -151,20 +177,12 @@ class PathSession(object):
         return data
 
 
-def initdb(session):
-    import os
-
-    if os.path.exists(settings["DB_PATH"]):
-        os.remove(settings["DB_PATH"])
-    Base.metadata.create_all(session.engine)
-
-
 if __name__ == "__main__":
     import sys
 
     if sys.argv[1] == "initdb":
         session = PathSession()
-        initdb(session)
+        session.db.clear()
 
     if sys.argv[1] == "get_stash":
         session = PathSession()
